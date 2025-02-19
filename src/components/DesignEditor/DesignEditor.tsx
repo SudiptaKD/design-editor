@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, useCallback, useMemo } from "react";
+import { useEffect, useReducer, useRef, useCallback, useMemo, useState } from "react";
 import { Rnd } from "react-rnd";
 import html2canvas from "html2canvas";
 
@@ -13,7 +13,7 @@ type Shape = {
   zIndex: number;
 };
 
-// Action types (same as before)
+// Action types
 type Action =
   | { type: "ADD_SHAPE"; payload: Shape }
   | { type: "UPDATE_SHAPE"; payload: Partial<Shape> & { id: string } }
@@ -24,12 +24,12 @@ type Action =
   | { type: "REDO" }
   | { type: "SELECT_SHAPE"; payload: string | null };
 
-// State type (same as before)
+// State type
 type State = {
-  past: Shape[][]; 
-  present: Shape[]; 
-  future: Shape[][]; 
-  selectedShapeId: string | null; 
+  past: Shape[][];
+  present: Shape[];
+  future: Shape[][];
+  selectedShapeId: string | null;
 };
 
 const initialState: State = { past: [], present: [], future: [], selectedShapeId: null };
@@ -88,20 +88,31 @@ function reducer(state: State, action: Action): State {
 
 const DesignEditor = () => {
   const [state, dispatch] = useReducer(reducer, initialState);
+  const [designs, setDesigns] = useState<string[]>([]); // List of saved design names
+  const [currentDesignName, setCurrentDesignName] = useState<string>(""); // Name of the current design
   const canvasRef = useRef<HTMLDivElement>(null);
 
-  // Load saved shapes from localStorage
+  // Load saved designs from localStorage
   useEffect(() => {
-    const savedShapes = localStorage.getItem("shapes");
-    if (savedShapes) {
-      dispatch({ type: "LOAD_SHAPES", payload: JSON.parse(savedShapes) });
+    const savedDesigns = localStorage.getItem("designs");
+    if (savedDesigns) {
+      const designsObj = JSON.parse(savedDesigns);
+      setDesigns(Object.keys(designsObj)); // Get list of design names
+      const latestDesignName = Object.keys(designsObj)[0]; // Load the latest design
+      setCurrentDesignName(latestDesignName);
+      dispatch({ type: "LOAD_SHAPES", payload: designsObj[latestDesignName] });
     }
   }, []);
 
-  // Save shapes to localStorage on state update
+  // Save current design to localStorage
   useEffect(() => {
-    localStorage.setItem("shapes", JSON.stringify(state.present));
-  }, [state.present]);
+    if (currentDesignName) {
+      const savedDesigns = JSON.parse(localStorage.getItem("designs") || "{}");
+      savedDesigns[currentDesignName] = state.present;
+      localStorage.setItem("designs", JSON.stringify(savedDesigns));
+      setDesigns(Object.keys(savedDesigns)); // Update the design list
+    }
+  }, [state.present, currentDesignName]);
 
   // Add new shape function
   const addShape = useCallback((type: "rectangle" | "circle") => {
@@ -146,7 +157,6 @@ const DesignEditor = () => {
             type: "UPDATE_SHAPE",
             payload: {
               id: shape.id,
-              // Ensure that the width and height remain equal for circles
               width: shape.type === "circle" ? Math.min(parseInt(ref.style.width), parseInt(ref.style.height)) : parseInt(ref.style.width),
               height: shape.type === "circle" ? Math.min(parseInt(ref.style.width), parseInt(ref.style.height)) : parseInt(ref.style.height),
               x: position.x,
@@ -169,6 +179,41 @@ const DesignEditor = () => {
     ));
   }, [state.present, dispatch]);
 
+  // Save the design under a name
+  const saveDesign = () => {
+    if (currentDesignName) {
+      // Overwrite the current design if it already exists
+      const savedDesigns = JSON.parse(localStorage.getItem("designs") || "{}");
+      savedDesigns[currentDesignName] = state.present; // Save current state under the name
+      localStorage.setItem("designs", JSON.stringify(savedDesigns));
+      setDesigns(Object.keys(savedDesigns)); // Update design list
+    } else {
+      // Prompt user for a new design name if it's a new design
+      const designName = prompt("Enter a name for your design:");
+      if (designName) {
+        const savedDesigns = JSON.parse(localStorage.getItem("designs") || "{}");
+        savedDesigns[designName] = state.present; // Save current state under the name
+        localStorage.setItem("designs", JSON.stringify(savedDesigns));
+        setDesigns(Object.keys(savedDesigns)); // Update design list
+        setCurrentDesignName(designName); // Set as current design
+      }
+    }
+  };
+
+  // Load a saved design by name
+  const loadDesign = (designName: string) => {
+    const savedDesigns = JSON.parse(localStorage.getItem("designs") || "{}");
+    const shapes = savedDesigns[designName];
+    setCurrentDesignName(designName); // Set the current design name
+    dispatch({ type: "LOAD_SHAPES", payload: shapes }); // Load the shapes of the selected design
+  };
+
+  // Start a new empty design
+  const createNewDesign = () => {
+    dispatch({ type: "CLEAR_SHAPES" });
+    setCurrentDesignName(""); // Reset the current design name
+  };
+
   return (
     <div className="p-4 bg-gray-200 min-h-screen flex flex-col items-center">
       <div className="flex gap-4 bg-white p-3 rounded-lg shadow-md mb-4">
@@ -178,6 +223,23 @@ const DesignEditor = () => {
         <button onClick={() => dispatch({ type: "UNDO" })} className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 shadow">Undo</button>
         <button onClick={() => dispatch({ type: "REDO" })} className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 shadow">Redo</button>
         <button onClick={() => dispatch({ type: "CLEAR_SHAPES" })} className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 shadow">Clear Canvas</button>
+        <button onClick={createNewDesign} className="bg-teal-500 text-white px-4 py-2 rounded hover:bg-teal-600 shadow">New Design</button>
+        <button onClick={saveDesign} className="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600 shadow">Save Design</button>
+      </div>
+      <div className="mb-4">
+        <h3 className="font-semibold">Select a Design</h3>
+        <select
+          value={currentDesignName}
+          onChange={(e) => loadDesign(e.target.value)}
+          className="bg-white p-2 border border-gray-300 rounded"
+        >
+          <option value="">-- Select a Design --</option>
+          {designs.map((design) => (
+            <option key={design} value={design}>
+              {design}
+            </option>
+          ))}
+        </select>
       </div>
       <div ref={canvasRef} className="relative w-full max-w-3xl h-[400px] border border-gray-300 bg-white rounded-md overflow-hidden">
         {renderedShapes}
