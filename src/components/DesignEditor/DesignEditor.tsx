@@ -1,7 +1,8 @@
-import { useReducer, useEffect, useRef, useCallback } from "react";
-import html2canvas from "html2canvas";
+import { useEffect, useReducer, useRef, useCallback } from "react";
 import { Rnd } from "react-rnd";
+import html2canvas from "html2canvas";
 
+// Shape types
 type Shape = {
   id: string;
   type: "rectangle" | "circle";
@@ -10,25 +11,28 @@ type Shape = {
   width: number;
   height: number;
   zIndex: number;
-  color: string;
-  rotation: number;
 };
 
+// Action types
 type Action =
   | { type: "ADD_SHAPE"; payload: Shape }
   | { type: "UPDATE_SHAPE"; payload: Partial<Shape> & { id: string } }
   | { type: "DELETE_SHAPE"; payload: string }
   | { type: "LOAD_SHAPES"; payload: Shape[] }
+  | { type: "CLEAR_SHAPES" }
   | { type: "UNDO" }
-  | { type: "REDO" };
+  | { type: "REDO" }
+  | { type: "SELECT_SHAPE"; payload: string | null };
 
+// State type
 type State = {
   past: Shape[][];
   present: Shape[];
   future: Shape[][];
+  selectedShapeId: string | null;
 };
 
-const initialState: State = { past: [], present: [], future: [] };
+const initialState: State = { past: [], present: [], future: [], selectedShapeId: null };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -57,12 +61,15 @@ function reducer(state: State, action: Action): State {
       };
     case "LOAD_SHAPES":
       return { ...state, present: action.payload };
+    case "CLEAR_SHAPES":
+      return { ...state, past: [...state.past, state.present], present: [], future: [] };
     case "UNDO":
       if (state.past.length === 0) return state;
       return {
         past: state.past.slice(0, -1),
         present: state.past[state.past.length - 1] || [],
         future: [state.present, ...state.future],
+        selectedShapeId: state?.selectedShapeId || null,
       };
     case "REDO":
       if (state.future.length === 0) return state;
@@ -70,7 +77,10 @@ function reducer(state: State, action: Action): State {
         past: [...state.past, state.present],
         present: state.future[0],
         future: state.future.slice(1),
+        selectedShapeId: state?.selectedShapeId || null,
       };
+    case "SELECT_SHAPE":
+      return { ...state, selectedShapeId: action.payload };
     default:
       return state;
   }
@@ -92,107 +102,67 @@ export default function DesignEditor() {
   }, [state.present]);
 
   const addShape = useCallback((type: "rectangle" | "circle") => {
-    const size = type === "circle" ? 100 : 120;
     const newShape: Shape = {
       id: Date.now().toString(),
       type,
       x: 50,
       y: 50,
-      width: size,
-      height: type === "circle" ? size : 80,
+      width: 100,
+      height: 100,
       zIndex: state.present.length + 1,
-      color: "#3498db",
-      rotation: 0,
     };
     dispatch({ type: "ADD_SHAPE", payload: newShape });
   }, [state.present]);
 
-  const updateShape = (id: string, updatedProperties: Partial<Shape>) => {
-    dispatch({ type: "UPDATE_SHAPE", payload: { id, ...updatedProperties } });
-  };
-
   const exportToPNG = async () => {
     if (canvasRef.current) {
-      const crossButtons = canvasRef.current.querySelectorAll(".delete-btn");
-      crossButtons.forEach((btn) => (btn as HTMLElement).style.display = "none")
-
       const canvas = await html2canvas(canvasRef.current);
       const link = document.createElement("a");
       link.href = canvas.toDataURL("image/png");
       link.download = "design.png";
       link.click();
-
-      crossButtons.forEach((btn) => (btn as HTMLElement).style.display = "block")
     }
   };
 
   return (
-    <div className="container mx-auto p-4">
-      <h1 className="text-3xl font-bold text-center mb-4">Design Editor</h1>
-
-      {/* 🚀 Styled Toolbar */}
-      <div className="flex flex-wrap justify-center gap-3 mb-4 p-3 bg-gray-800 rounded-lg shadow-lg">
-        <button onClick={() => addShape("rectangle")} className="btn">Rectangle</button>
-        <button onClick={() => addShape("circle")} className="btn">Circle</button>
-        <button onClick={exportToPNG} className="btn bg-blue-600">Export PNG</button>
-        <button onClick={() => dispatch({ type: "UNDO" })} className="btn bg-gray-500">Undo</button>
-        <button onClick={() => dispatch({ type: "REDO" })} className="btn bg-gray-500">Redo</button>
+    <div className="p-4 bg-gray-200 min-h-screen flex flex-col items-center">
+      <div className="flex gap-4 bg-white p-3 rounded-lg shadow-md mb-4">
+        <button onClick={() => addShape("rectangle")} className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 shadow">Add Rectangle</button>
+        <button onClick={() => addShape("circle")} className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 shadow">Add Circle</button>
+        <button onClick={exportToPNG} className="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600 shadow">Download PNG</button>
+        <button onClick={() => dispatch({ type: "UNDO" })} className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 shadow">Undo</button>
+        <button onClick={() => dispatch({ type: "REDO" })} className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 shadow">Redo</button>
+        <button onClick={() => dispatch({ type: "CLEAR_SHAPES" })} className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 shadow">Clear Canvas</button>
       </div>
-
-      {/* 🎨 Canvas */}
-      <div ref={canvasRef} className="relative w-full max-w-3xl h-[400px] mx-auto border-2 border-gray-400 bg-gray-100 rounded-lg shadow-md overflow-hidden">
+      <div ref={canvasRef} className="relative w-full max-w-3xl h-[400px] border border-gray-300 bg-white rounded-md">
         {state.present.map((shape) => (
           <Rnd
             key={shape.id}
             default={{ x: shape.x, y: shape.y, width: shape.width, height: shape.height }}
             bounds="parent"
             style={{ zIndex: shape.zIndex }}
-            onDragStop={(e, d) => updateShape(shape.id, { x: d.x, y: d.y })}
+            onDragStop={(e, d) =>
+              dispatch({ type: "UPDATE_SHAPE", payload: { id: shape.id, x: d.x, y: d.y } })
+            }
             onResizeStop={(e, direction, ref, delta, position) =>
-              updateShape(shape.id, {
-                width: parseInt(ref.style.width),
-                height: parseInt(ref.style.height),
-                x: position.x,
-                y: position.y,
+              dispatch({
+                type: "UPDATE_SHAPE",
+                payload: {
+                  id: shape.id,
+                  width: parseInt(ref.style.width),
+                  height: parseInt(ref.style.height),
+                  x: position.x,
+                  y: position.y,
+                },
               })
             }
           >
-            <div
-              className="relative flex items-center justify-center w-full h-full"
-              style={{
-                backgroundColor: shape.color,
-                borderRadius: shape.type === "circle" ? "50%" : "0",
-                transform: `rotate(${shape.rotation}deg)`,
-              }}
-            >
-              {/* Larger Cross Button for Easy Click */}
-              <button
-                className="delete-btn absolute -top-3 -right-3 bg-red-600 text-white text-sm px-2 py-1 rounded-full shadow-md hover:bg-red-700"
-                onClick={() => dispatch({ type: "DELETE_SHAPE", payload: shape.id })}
-              >
-                ❌
-              </button>
+            <div className={`w-full h-full border ${shape.type === "circle" ? "rounded-full" : ""}`}>
+              <button onClick={() => dispatch({ type: "DELETE_SHAPE", payload: shape.id })} className="absolute -top-3 -right-3 bg-red-500 text-white p-2 text-xs rounded-full hover:bg-red-600 shadow">X</button>
             </div>
           </Rnd>
         ))}
       </div>
-
-      {/* 🚀 Tailwind CSS for Buttons */}
-      <style jsx>{`
-        .btn {
-          background-color: #4a5568;
-          color: white;
-          padding: 10px 15px;
-          border-radius: 8px;
-          font-weight: bold;
-          transition: all 0.2s ease-in-out;
-          box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
-        }
-        .btn:hover {
-          background-color: #2d3748;
-          transform: translateY(-2px);
-        }
-      `}</style>
     </div>
   );
 }
