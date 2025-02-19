@@ -1,4 +1,3 @@
-// reducer.ts
 import { AppState, Action } from "./types";
 
 export const initialState: AppState = { past: [], present: [], future: [], selectedShapeId: null };
