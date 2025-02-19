@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, useCallback } from "react";
+import { useEffect, useReducer, useRef, useCallback, useMemo } from "react";
 import { Rnd } from "react-rnd";
 import html2canvas from "html2canvas";
 
@@ -13,7 +13,7 @@ type Shape = {
   zIndex: number;
 };
 
-// Action types
+// Action types (same as before)
 type Action =
   | { type: "ADD_SHAPE"; payload: Shape }
   | { type: "UPDATE_SHAPE"; payload: Partial<Shape> & { id: string } }
@@ -24,12 +24,12 @@ type Action =
   | { type: "REDO" }
   | { type: "SELECT_SHAPE"; payload: string | null };
 
-// State type
+// State type (same as before)
 type State = {
-  past: Shape[][];
-  present: Shape[];
-  future: Shape[][];
-  selectedShapeId: string | null;
+  past: Shape[][]; 
+  present: Shape[]; 
+  future: Shape[][]; 
+  selectedShapeId: string | null; 
 };
 
 const initialState: State = { past: [], present: [], future: [], selectedShapeId: null };
@@ -86,10 +86,11 @@ function reducer(state: State, action: Action): State {
   }
 }
 
-export default function DesignEditor() {
+const DesignEditor = () => {
   const [state, dispatch] = useReducer(reducer, initialState);
   const canvasRef = useRef<HTMLDivElement>(null);
 
+  // Load saved shapes from localStorage
   useEffect(() => {
     const savedShapes = localStorage.getItem("shapes");
     if (savedShapes) {
@@ -97,10 +98,12 @@ export default function DesignEditor() {
     }
   }, []);
 
+  // Save shapes to localStorage on state update
   useEffect(() => {
     localStorage.setItem("shapes", JSON.stringify(state.present));
   }, [state.present]);
 
+  // Add new shape function
   const addShape = useCallback((type: "rectangle" | "circle") => {
     const newShape: Shape = {
       id: Date.now().toString(),
@@ -114,15 +117,57 @@ export default function DesignEditor() {
     dispatch({ type: "ADD_SHAPE", payload: newShape });
   }, [state.present]);
 
+  // Export canvas as PNG without delete buttons
   const exportToPNG = async () => {
     if (canvasRef.current) {
-      const canvas = await html2canvas(canvasRef.current);
+      const canvas = await html2canvas(canvasRef.current, {
+        ignoreElements: (element) => element.classList.contains("delete-btn"), // Ignore delete buttons
+      });
       const link = document.createElement("a");
       link.href = canvas.toDataURL("image/png");
       link.download = "design.png";
       link.click();
     }
   };
+
+  // Memoize rendered shapes to optimize performance
+  const renderedShapes = useMemo(() => {
+    return state.present.map((shape) => (
+      <Rnd
+        key={shape.id}
+        default={{ x: shape.x, y: shape.y, width: shape.width, height: shape.height }}
+        bounds="parent"
+        style={{ zIndex: shape.zIndex }}
+        onDragStop={(e, d) =>
+          dispatch({ type: "UPDATE_SHAPE", payload: { id: shape.id, x: d.x, y: d.y } })
+        }
+        onResizeStop={(e, direction, ref, delta, position) =>
+          dispatch({
+            type: "UPDATE_SHAPE",
+            payload: {
+              id: shape.id,
+              // Ensure that the width and height remain equal for circles
+              width: shape.type === "circle" ? Math.min(parseInt(ref.style.width), parseInt(ref.style.height)) : parseInt(ref.style.width),
+              height: shape.type === "circle" ? Math.min(parseInt(ref.style.width), parseInt(ref.style.height)) : parseInt(ref.style.height),
+              x: position.x,
+              y: position.y,
+            },
+          })
+        }
+      >
+        <div
+          className={`w-full h-full border ${shape.type === "circle" ? "rounded-full" : ""}`}
+        >
+          <button
+            onClick={() => dispatch({ type: "DELETE_SHAPE", payload: shape.id })}
+            className="delete-btn absolute -top-3 -right-3 bg-red-500 text-white p-2 text-xs rounded-full hover:bg-red-600 shadow"
+          >
+            X
+          </button>
+        </div>
+      </Rnd>
+    ));
+  }, [state.present, dispatch]);
 
   return (
     <div className="p-4 bg-gray-200 min-h-screen flex flex-col items-center">
@@ -134,35 +179,11 @@ export default function DesignEditor() {
         <button onClick={() => dispatch({ type: "REDO" })} className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 shadow">Redo</button>
         <button onClick={() => dispatch({ type: "CLEAR_SHAPES" })} className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 shadow">Clear Canvas</button>
       </div>
-      <div ref={canvasRef} className="relative w-full max-w-3xl h-[400px] border border-gray-300 bg-white rounded-md">
-        {state.present.map((shape) => (
-          <Rnd
-            key={shape.id}
-            default={{ x: shape.x, y: shape.y, width: shape.width, height: shape.height }}
-            bounds="parent"
-            style={{ zIndex: shape.zIndex }}
-            onDragStop={(e, d) =>
-              dispatch({ type: "UPDATE_SHAPE", payload: { id: shape.id, x: d.x, y: d.y } })
-            }
-            onResizeStop={(e, direction, ref, delta, position) =>
-              dispatch({
-                type: "UPDATE_SHAPE",
-                payload: {
-                  id: shape.id,
-                  width: parseInt(ref.style.width),
-                  height: parseInt(ref.style.height),
-                  x: position.x,
-                  y: position.y,
-                },
-              })
-            }
-          >
-            <div className={`w-full h-full border ${shape.type === "circle" ? "rounded-full" : ""}`}>
-              <button onClick={() => dispatch({ type: "DELETE_SHAPE", payload: shape.id })} className="absolute -top-3 -right-3 bg-red-500 text-white p-2 text-xs rounded-full hover:bg-red-600 shadow">X</button>
-            </div>
-          </Rnd>
-        ))}
+      <div ref={canvasRef} className="relative w-full max-w-3xl h-[400px] border border-gray-300 bg-white rounded-md overflow-hidden">
+        {renderedShapes}
       </div>
     </div>
   );
-}
+};
+
+export default DesignEditor;
