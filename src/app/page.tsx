@@ -1,5 +1,5 @@
 "use client"
-import DesignEditor from '@/components/DesignEditor/DesignEditor'
+import DesignEditor from '@/components/DesignEditor'
 import React from 'react'
 
 const page = () => {
